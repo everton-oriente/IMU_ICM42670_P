@@ -1,7 +1,9 @@
 // Import the trait or interface
 
 use embedded_hal::i2c::I2c;
+use embedded_hal::delay::DelayNs;
 use super::reg;
+
 
 // Implementation of the driver for the ICM42670-P sensor
 pub struct Icm42670P<T> {   // This defines a generic struct for ICM42670-P, where T represents the type of bus interface (e.g., I2C, SPI),
@@ -21,22 +23,49 @@ impl <T:I2c> Icm42670P<T> {
         }
     }
 
-    pub fn init(&mut self) -> Result<(), T::Error> {
-        // Recommended Initialization sequence for the ICM42670-P sensor
-        // Read WHO_AM_I register to verify communication should return 0x68
+    pub fn init<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), T::Error> {
         let mut buf: [u8; 1] = [0u8; 1];
-        self.read_bytes(reg::WHO_AM_I, &mut buf)?;
-        // Trigger soft reset, write 0x01 to DEVICE_CONFIG register
-        if buf[0] == reg::WHO_AM_I {
-            self.write_byte(reg::DEVICE_CONFIG, 0x01)?;
+
+        self.write_byte(reg::PWR_MGMT0, 0x00)?;  // Gyro LN + Accel LN
+        delay.delay_ms(50);
+        
+        // ✅ STEP 1: Wait for MCLK ready FIRST
+        self.read_bytes(reg::MCLK_RDY, &mut buf)?;
+        while (buf[0] & 0x01) == 0 {  // Check if MCLK ready bit is set 0x01
+            self.read_bytes(reg::MCLK_RDY, &mut buf)?;
         }
-        // Wait for 5ms after reset
-        // Turn sensor, on writing 0x0F to PWR_MGMT0 register
-        self.write_byte(reg::PWR_MGMT0, 0x9F)?;
-        // Configure accelerometer and gyroscope settings as needed, GYRO_CONFIG0 and ACCEL_CONFIG0 registers
-         self.write_byte(reg::GYRO_CONFIG0, 0x66)?;
-        // Configure the low pass filter settings if needed, GYRO_CONFIG1 and ACCEL_CONFIG1 registers
-        self.write_byte(reg::ACCEL_CONFIG0, 0x66)?; // Example: Set accelerometer to 4g range
+        
+        // ✅ STEP 2: Verify WHO_AM_I
+        self.read_bytes(reg::WHO_AM_I, &mut buf)?;
+
+        // ✅ STEP 3: Reset signal paths
+        self.write_byte(reg::SIGNAL_PATH_RESET, 0x10)?;
+
+        // Wait for 50 ms after reset
+        delay.delay_ms(50);
+        
+        // ✅ STEP 4: Wait for MCLK again
+        self.read_bytes(reg::MCLK_RDY, &mut buf)?;
+        while (buf[0] & 0x01) == 0 {  // Check if MCLK ready bit is set 0x01
+            self.read_bytes(reg::MCLK_RDY, &mut buf)?;
+        }
+        
+        // Wait for 50 ms after reset
+        delay.delay_ms(50);
+
+        // ✅ STEP 6: Configure gyroscope (±2000 dps, 1600 Hz)
+        self.write_byte(reg::GYRO_CONFIG0, 0x65)?;  // 011 (±2000) + 1111 (1600Hz)
+        delay.delay_ms(5);
+        
+        // ✅ STEP 7: Configure accelerometer (±16g, 1600 Hz)
+        self.write_byte(reg::ACCEL_CONFIG0, 0x65)?;  // 011 (±16g) + 1111 (1600Hz)
+        delay.delay_ms(5);
+
+         // ✅ STEP 5: Enable 6-axis sensors
+        self.write_byte(reg::PWR_MGMT0, 0x1F)?;  // Gyro LN + Accel LN
+
+        delay.delay_ms(50);
+        
         Ok(())
     }
 
@@ -76,14 +105,22 @@ impl <T:I2c> Icm42670P<T> {
         Ok([gx, gy, gz])
     }
 
-    pub fn who_am_i(&mut self) -> Result<u8, T::Error> {
+    pub fn read_who_am_i(&mut self) -> Result<u8, T::Error> {
         let mut address: [u8; 1] = [0u8; 1];
         self.i2c_interface.write_read(self.device_address, &[reg::WHO_AM_I], &mut address)?;
         Ok(address[0])
         }
+    
     pub fn read_gyro_config_0(&mut self) -> Result<u8, T::Error> {
         let mut config: [u8; 1] = [0u8; 1];
         self.i2c_interface.write_read(self.device_address, &[reg::GYRO_CONFIG0], &mut config)?;
         Ok(config[0])
     }
+
+    pub fn read_mclk_rdy(&mut self) -> Result<u8, T::Error> {
+        let mut status: [u8; 1] = [0u8; 1];
+        self.i2c_interface.write_read(self.device_address, &[reg::MCLK_RDY], &mut status)?;
+        Ok(status[0])
+    }
+
 }
