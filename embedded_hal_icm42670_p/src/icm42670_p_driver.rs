@@ -31,8 +31,13 @@ impl <T:I2c> Icm42670P<T> {
         
         // ✅ STEP 1: Wait for MCLK ready FIRST
         self.read_bytes(reg::MCLK_RDY, &mut buf)?;
-        while (buf[0] & 0x01) == 0 {  // Check if MCLK ready bit is set 0x01
+
+        for _ in 0..100 {
+            if (buf[0] & 0x01) == 1 {
+                break;
+            }
             self.read_bytes(reg::MCLK_RDY, &mut buf)?;
+            delay.delay_ms(20);
         }
         
         // ✅ STEP 2: Verify WHO_AM_I
@@ -46,8 +51,12 @@ impl <T:I2c> Icm42670P<T> {
         
         // ✅ STEP 4: Wait for MCLK again
         self.read_bytes(reg::MCLK_RDY, &mut buf)?;
-        while (buf[0] & 0x01) == 0 {  // Check if MCLK ready bit is set 0x01
+        for _ in 0..100 {
+            if (buf[0] & 0x01) == 1 {
+                break;
+            }
             self.read_bytes(reg::MCLK_RDY, &mut buf)?;
+            delay.delay_ms(20);
         }
         
         // Wait for 50 ms after reset
@@ -88,9 +97,9 @@ impl <T:I2c> Icm42670P<T> {
         // Placeholder return value
         let mut accel_data: [u8; 6] = [0u8; 6];
         self.read_bytes(reg::ACCEL_DATA_X1, &mut accel_data)?;
-        let ax = ((accel_data[0] as i16) << 8) | (accel_data[1] as i16);
-        let ay = ((accel_data[2] as i16) << 8) | (accel_data[3] as i16);
-        let az = ((accel_data[4] as i16) << 8) | (accel_data[5] as i16);
+        let ax = i16::from_be_bytes([accel_data[0], accel_data[1]]);
+        let ay = i16::from_be_bytes([accel_data[2], accel_data[3]]);
+        let az = i16::from_be_bytes([accel_data[4], accel_data[5]]);
         Ok([ax, ay, az])
     }
 
@@ -99,9 +108,9 @@ impl <T:I2c> Icm42670P<T> {
         // Placeholder return value
         let mut gyro_data: [u8; 6] = [0u8; 6];
         self.read_bytes( reg::GYRO_DATA_X1, &mut gyro_data)?;
-        let gx = ((gyro_data[0] as i16) << 8) | (gyro_data[1] as i16);
-        let gy = ((gyro_data[2] as i16) << 8) | (gyro_data[3] as i16);
-        let gz = ((gyro_data[4] as i16) << 8) | (gyro_data[5] as i16);
+        let gx = i16::from_be_bytes([gyro_data[0], gyro_data[1]]);
+        let gy = i16::from_be_bytes([gyro_data[2], gyro_data[3]]);
+        let gz = i16::from_be_bytes([gyro_data[4], gyro_data[5]]);
         Ok([gx, gy, gz])
     }
 
